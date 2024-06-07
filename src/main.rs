@@ -1,41 +1,39 @@
 mod huffman;
+mod file_system;
 
-use std::thread::sleep;
+use std::fs;
 
-use huffman::Huffman;
+use huffman::{HuffmanResult, HuffmanTree};
 
 fn main() {
+
     let start = std::time::Instant::now();
 
-    let contents = std::fs::read_to_string("input.txt").unwrap();
+    let contents = fs::read_to_string("bibel.txt").unwrap();
 
-    let read_time = std::time::Instant::now();
-    
-    let encrypted = Huffman::encrypt(&contents);
+    let encrypted = HuffmanTree::encrypt(&contents);
 
-    let encrypt_time = std::time::Instant::now();
+    fs::write("encrypted.tmy", encrypted.serialize()).unwrap();
 
-    std::fs::write("encrypted.txt", encrypted.clone()).unwrap();
+    let entcrypt_time = std::time::Instant::now();
 
-    let write_time = std::time::Instant::now();
+    let encrypted_file_contents = fs::read("encrypted.tmy").unwrap();
 
-    let contents = std::fs::read_to_string("encrypted.txt").unwrap();
-
-    let read_encrypted_time = std::time::Instant::now();
-
-    let result = Huffman::decrypt(contents);
+    let encrypted = HuffmanResult::deserialize(&encrypted_file_contents)
+;
+    let decrypted = HuffmanTree::decrypt(&encrypted);
+    fs::write("decrypted.txt", &decrypted).unwrap();
 
     let decrypt_time = std::time::Instant::now();
 
-    println!("Read: {:?}\nEncrypt: {:?}\nWrite: {:?}\nRead Encrypted: {:?}\nDecrypt: {:?}", 
-        read_time.duration_since(start),
-        encrypt_time.duration_since(read_time),
-        write_time.duration_since(encrypt_time),
-        read_encrypted_time.duration_since(write_time),
-        decrypt_time.duration_since(read_encrypted_time),
-    );
+    println!("Decrypted: {:?}", decrypted.chars().into_iter().take(100).collect::<String>());
+    assert!(decrypted == contents, "Decrypted content is not the same as the original content");
+    println!("Encryption time: {:?}", entcrypt_time.duration_since(start));
+    println!("Decryption time: {:?}", decrypt_time.duration_since(entcrypt_time));
 
-    println!("Decrypted: {}", result.chars().take(200).collect::<String>());
+    // let test = (0..1000000000).map(|i| (i % 26 + 65) as u8 as char).collect::<String>();
+    // fs::write("test.txt", &test).unwrap();
+
 
 }
 

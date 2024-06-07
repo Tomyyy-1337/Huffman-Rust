@@ -1,43 +1,33 @@
 use std::{cmp::Reverse, collections::HashMap};
-use priority_queue::PriorityQueue;
 
-#[derive(Debug, Hash, PartialEq, Eq)]
-pub struct Huffman {
-    children: Vec<Huffman>,
+use priority_queue::PriorityQueue;
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct HuffmanResult {
+    tree: HuffmanTree,
+    unused_bits: u8,
+    data: Vec<u8>,
+}
+
+impl HuffmanResult {
+    pub fn serialize(&self) -> Vec<u8> {
+        bincode::serialize(&self).unwrap()
+    }
+    
+    pub fn deserialize(input: &[u8]) -> Self {
+        bincode::deserialize(input).unwrap()
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct HuffmanTree {
+    children: Vec<HuffmanTree>,
     character: Option<char>,
 }
 
-impl Huffman {
-    fn serialize(&self) -> String {
-        match self.character {
-            Some(c) => c.to_string(),
-            None => format!("警{}{}", self.children[0].serialize(), self.children[1].serialize()),
-        }
-    }
-
-    fn deserialize(input: String) -> (Huffman, String) {
-        let (node, s) = Huffman::deserialize_rec(input.chars().collect::<Vec<char>>());
-        (node, s.iter().collect::<String>())
-    }
-
-    fn deserialize_rec(input: Vec<char>) -> (Huffman, Vec<char>) {
-        if input[0] == '警' {
-            let (left, rest) = Huffman::deserialize_rec(input[1..].to_vec());
-            let (right, rest) = Huffman::deserialize_rec(rest);
-            (Huffman {
-                children: vec![left, right],
-                character: None,
-            }, rest)
-        } else {
-            (Huffman {
-                children: vec![],
-                character: Some(input[0]),
-            }, input[1..].to_vec())
-        }
-        
-    }
-
-    fn build_tree(input: &str) -> Huffman {
+impl HuffmanTree {
+    fn build_tree(input: &str) -> Self {
         let chars_counts = input.chars()
             .fold(HashMap::new(), |mut map, c|{
                 *map.entry(c).or_insert(0) += 1;
@@ -46,8 +36,8 @@ impl Huffman {
             .into_iter()
             .collect::<Vec<(char, i32)>>();
 
-        let mut pq: PriorityQueue<Huffman, _, _> = PriorityQueue::new();
-        pq.extend(chars_counts.into_iter().map(|(c, count)| (Huffman {
+        let mut pq: PriorityQueue<Self, _, _> = PriorityQueue::new();
+        pq.extend(chars_counts.into_iter().map(|(c, count)| (Self {
             children: vec![],
             character: Some(c),
         }, Reverse(count))));
@@ -55,7 +45,7 @@ impl Huffman {
         while pq.len() > 1 {
             let (left, count_left) = pq.pop().unwrap();
             let (right, count_right) = pq.pop().unwrap();
-            pq.push(Huffman {
+            pq.push(Self {
                 children: vec![left, right],
                 character: None,
             }, Reverse(count_left.0 + count_right.0));
@@ -63,13 +53,13 @@ impl Huffman {
         pq.pop().unwrap().0
     }
 
-    fn encrypt_char(&self, code: &[bool]) -> Option<char> {
+    fn decrypt_char(&self, code: &[bool]) -> Option<char> {
         match code.split_first() {
             Some((first, rest)) => {
                 if *first {
-                    self.children.get(1).and_then(|child| child.encrypt_char(rest))
+                    self.children.get(1).and_then(|child| child.decrypt_char(rest))
                 } else {
-                    self.children.get(0).and_then(|child| child.encrypt_char(rest))
+                    self.children.get(0).and_then(|child| child.decrypt_char(rest))
                 }
             }
             None => self.character,
@@ -96,44 +86,45 @@ impl Huffman {
         }
     }
 
-    pub fn encrypt(input: &str) -> String {
-        let tree = Huffman::build_tree(input);
-
+    pub fn encrypt(input: &str) -> HuffmanResult {
+        let tree = Self::build_tree(input);
         let mut lookup = HashMap::new();
         tree.build_map(vec![], &mut lookup);
 
-        let serialized_tree = tree.serialize();
-        let serialized_data = input.chars().flat_map(|c| lookup.get(&c).unwrap())
-            .collect::<Vec<_>>()
-            .chunks(8)
-            .map(|chunk| {
-                let mut byte:u8 = 0;
-                for (i, bit) in chunk.iter().enumerate() {
-                    if **bit {
-                        byte |= 1 << (7 - i);
-                    }
+        let (final_indx, data) = input
+            .chars()
+            .flat_map(|c| lookup.get(&c).unwrap())
+            .fold((0,Vec::new()), |(indx, mut acc), c|{
+                if indx % 8 == 0 {
+                    acc.push(if *c {1u8} else {0u8});
+                } else if *c {
+                    *acc.last_mut().unwrap() |= 1 << (indx % 8);
                 }
-                byte as char
-            })
-            .collect::<String>();
+                (indx + 1, acc)
+            });
 
-        format!("{}{}", serialized_tree, serialized_data)
+        HuffmanResult {
+            tree,
+            unused_bits: (8 - (final_indx + 1) % 8) as u8,
+            data,
+        }
     }
-
-    pub fn decrypt(input: String) -> String {
-        let (tree, rest) = Huffman::deserialize(input);
-        let input = rest.chars().flat_map(|c| {
-            (0..8).rev().map(move |i| c as u8 & (1 << i as u8) != 0)
-        }).collect::<Vec<bool>>();
-        let mut start = 0;
+    
+    pub fn decrypt(content: &HuffmanResult) -> String {
+        let tree = &content.tree;
+        let rest = &content.data;
+        let unused = content.unused_bits;
         let mut result = Vec::new();
-        for i in 0..input.len()  {
-            if let Some(char) = tree.encrypt_char(&input[start..=i]) {
+        let mut input = Vec::new();
+        for i in 0..rest.len() * 8 - unused as usize {
+            let indx = i / 8;
+            let bit = (i % 8) as u8;
+            input.push(rest[indx] & (1 << bit) != 0);
+            if let Some(char) = tree.decrypt_char(&input) {
                 result.push(char);
-                start = i + 1;
+                input.clear();
             }
         }
         result.into_iter().collect()
-    }   
-
+    }  
 }
