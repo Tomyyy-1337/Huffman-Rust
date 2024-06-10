@@ -4,9 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct LZ77 {
-    data: Vec<u8>,
-    look_ahead_buffer_size: u8,
-    search_buffer_size: u8,
+    pub data: Vec<u8>,
 }
 
 impl LZ77 {
@@ -16,6 +14,12 @@ impl LZ77 {
     
     pub fn deserialize(input: &[u8]) -> Self {
         bincode::deserialize(input).unwrap()
+    }
+
+    pub fn from_data(data: Vec<u8>) -> Self {
+        LZ77 {
+            data,
+        }
     }
 
     pub fn encode(input: &[u8]) -> LZ77 {
@@ -101,8 +105,6 @@ impl LZ77 {
         }).collect::<Vec<u8>>();
         LZ77 {
             data,
-            look_ahead_buffer_size,
-            search_buffer_size,
         }
     }
 
@@ -127,7 +129,7 @@ impl LZ77 {
             } else {
                 let offset = entry.offset as usize;
                 let length = entry.length as usize;
-                let result_length_offset = (0).max(result.len() as i32 - self.search_buffer_size as i32 + 1) as usize;
+                let result_length_offset = (0).max(result.len() as i32 - 255 as i32 + 1) as usize;
                 for i in 0..length {
                     let c = result[i + offset + result_length_offset];
                     result.push(c);

@@ -4,13 +4,13 @@ use priority_queue::PriorityQueue;
 use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct HuffmanResult {
+pub struct Huffman {
     tree: HuffmanTree,
     unused_bits: u8,
     data: Vec<u8>,
 }
 
-impl HuffmanResult {
+impl Huffman {
     pub fn serialize(&self) -> Vec<u8> {
         bincode::serialize(&self).unwrap()
     }
@@ -18,28 +18,71 @@ impl HuffmanResult {
     pub fn deserialize(input: &[u8]) -> Self {
         bincode::deserialize(input).unwrap()
     }
+
+    pub fn encrypt(input: &Vec<u8>) -> Huffman {
+        let tree = HuffmanTree::build_tree(&input);
+        let mut lookup = HashMap::new();
+        tree.build_map(vec![], &mut lookup);
+
+        let (count, data) = input
+            .into_iter()
+            .flat_map(|c| lookup.get(&c).unwrap())
+            .fold((0usize,Vec::new()), |(indx, mut acc), c|{
+                if indx % 8 == 0 {
+                    acc.push(if *c {1u8} else {0u8});
+                } else if *c {
+                    *acc.last_mut().unwrap() |= 1 << (indx % 8);
+                }
+                (indx + 1, acc)
+            });
+
+        Huffman {
+            tree,
+            unused_bits: match count % 8 {
+                0 => 0,
+                n => 8 - n as u8,
+            },
+            data,
+        }
+    }
+
+    pub fn decrypt(&self) -> Vec<u8> {
+        let tree = &self.tree;
+        let data = &self.data;
+        let unused = self.unused_bits;
+        let mut result = Vec::new();
+        let mut input = Vec::new();
+        for i in 0..data.len() * 8 - unused as usize {
+            let indx = i / 8;
+            let bit = (i % 8) as u8;
+            input.push(data[indx] & (1 << bit) != 0);
+            if let Some(char) = tree.decrypt_char(&input) {
+                result.push(char);
+                input.clear();
+            }
+        }
+        result
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct HuffmanTree {
     children: Vec<HuffmanTree>,
-    character: Option<char>,
+    character: Option<u8>,
 }
 
 impl HuffmanTree {
-    fn build_tree(input: &str) -> Self {
-        let chars_counts = input.chars()
-            .fold(HashMap::new(), |mut map, c|{
-                *map.entry(c).or_insert(0) += 1;
-                map
-            })
-            .into_iter()
-            .collect::<Vec<(char, i32)>>();
+    fn build_tree(input: &Vec<u8>) -> HuffmanTree {
+        let mut counts = [0u64;256];
+
+        for &e in input {
+            counts[e as usize] += 1;
+        }
 
         let mut pq: PriorityQueue<Self, _, _> = PriorityQueue::new();
-        pq.extend(chars_counts.into_iter().map(|(c, count)| (Self {
+        pq.extend(counts.into_iter().enumerate().map(|(c, count)| (Self {
             children: vec![],
-            character: Some(c),
+            character: Some(c as u8),
         }, Reverse(count))));
 
         while pq.len() > 1 {
@@ -53,7 +96,7 @@ impl HuffmanTree {
         pq.pop().unwrap().0
     }
 
-    fn decrypt_char(&self, code: &[bool]) -> Option<char> {
+    fn decrypt_char(&self, code: &[bool]) -> Option<u8> {
         match code.split_first() {
             Some((first, rest)) => {
                 if *first {
@@ -66,7 +109,7 @@ impl HuffmanTree {
         }
     }
 
-    fn build_map(&self, current_path: Vec<bool>, map: &mut HashMap<char, Vec<bool>>) {
+    fn build_map(&self, current_path: Vec<bool>, map: &mut HashMap<u8, Vec<bool>>) {
         match self.character {
             Some(c) => {
                 map.insert(c, current_path);
@@ -85,46 +128,4 @@ impl HuffmanTree {
             }
         }
     }
-
-    pub fn encrypt(input: &str) -> HuffmanResult {
-        let tree = Self::build_tree(input);
-        let mut lookup = HashMap::new();
-        tree.build_map(vec![], &mut lookup);
-
-        let (final_indx, data) = input
-            .chars()
-            .flat_map(|c| lookup.get(&c).unwrap())
-            .fold((0,Vec::new()), |(indx, mut acc), c|{
-                if indx % 8 == 0 {
-                    acc.push(if *c {1u8} else {0u8});
-                } else if *c {
-                    *acc.last_mut().unwrap() |= 1 << (indx % 8);
-                }
-                (indx + 1, acc)
-            });
-
-        HuffmanResult {
-            tree,
-            unused_bits: (8 - (final_indx + 1) % 8) as u8,
-            data,
-        }
-    }
-    
-    pub fn decrypt(content: &HuffmanResult) -> String {
-        let tree = &content.tree;
-        let data = &content.data;
-        let unused = content.unused_bits;
-        let mut result = Vec::new();
-        let mut input = Vec::new();
-        for i in 0..data.len() * 8 - unused as usize {
-            let indx = i / 8;
-            let bit = (i % 8) as u8;
-            input.push(data[indx] & (1 << bit) != 0);
-            if let Some(char) = tree.decrypt_char(&input) {
-                result.push(char);
-                input.clear();
-            }
-        }
-        result.into_iter().collect()
-    }  
 }
