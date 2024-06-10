@@ -7,7 +7,7 @@ use serde::{Serialize, Deserialize};
 pub struct Huffman {
     tree: HuffmanTree,
     unused_bits: u8,
-    data: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 impl Huffman {

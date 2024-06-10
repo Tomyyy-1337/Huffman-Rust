@@ -10,23 +10,49 @@ use lz77::LZ77;
 use serde::{Deserialize, Serialize};
 
 fn main() {
-    let input = fs::read("lcet10.txt").unwrap();
+    let input = fs::read("input.txt").unwrap();
+
+    let mut start = std::time::Instant::now();
 
     let lz77 = lz77::LZ77::encode(&input);
 
+    println!("LZ77 encoding took {:?}", start.elapsed());
+    start = std::time::Instant::now();
+
     let huffman = Huffman::encrypt(&lz77.data);
+
+    println!("Huffman encoding took {:?}", start.elapsed());
+    start = std::time::Instant::now();
 
     let serialized = huffman.serialize();
 
+    println!("Serialization took {:?}", start.elapsed());
+    start = std::time::Instant::now();
+
     fs::write("output.bin", &serialized).unwrap();
+
+    println!("Writing to file took {:?}", start.elapsed());
+    start = std::time::Instant::now();
 
     let serialized = fs::read("output.bin").unwrap();
 
+    println!("Reading from file took {:?}", start.elapsed());
+    start = std::time::Instant::now();
+
+
     let huffman = Huffman::deserialize(&serialized);
+
+    println!("Deserialization took {:?}", start.elapsed());
+    start = std::time::Instant::now();
 
     let lz77_2 = LZ77::from_data(huffman.decrypt());
 
+    println!("Huffman decoding took {:?}", start.elapsed());
+    start = std::time::Instant::now();
+
     let decoded = lz77_2.decode();
+
+    println!("LZ77 decoding took {:?}", start.elapsed());
 
     fs::write("output.txt", &decoded).unwrap();
 

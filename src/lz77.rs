@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -24,8 +23,7 @@ impl LZ77 {
 
     pub fn encode(input: &[u8]) -> LZ77 {
         let look_ahead_buffer_size = 255u8;
-        let search_buffer_size = 255u8;
-
+        let search_buffer_size = u16::MAX;
 
         let input_iter = &mut input.iter();
         
@@ -36,29 +34,26 @@ impl LZ77 {
 
         let mut best_offset = 0;
         let mut best_length = 0;
+
         while look_ahead_buffer.len() > 0 {
             best_offset = 0;
             best_length = 0;
-            for i in 0..search_buffer.len() {
-                for j in 0..look_ahead_buffer.len() {
-                    if i + j >= search_buffer.len() {
-                        break;
-                    }
-                    if search_buffer[i + j] != look_ahead_buffer[j] {
-                        if j > best_length {
-                            best_length = j;
-                            best_offset = i;
-                        }
-                        break;   
-                    }
-                    if i + j == search_buffer.len() - 1 || j == look_ahead_buffer.len() - 1 {
-                        if j + 1 > best_length {
-                            best_length = j + 1;
-                            best_offset = i;
-                        }
-                    }
-                }
+
+            let first = look_ahead_buffer[0];
+            let mut possible_offsets = search_buffer.iter().enumerate()
+                .filter(|&(_,&elem)| elem == first)
+                .map(|(i,_)| i as u16)
+                .collect::<Vec<_>>();
+            while possible_offsets.len() > 0 {
+                best_offset = possible_offsets[0];
+                best_length += 1;
+                possible_offsets.retain(|&offset| 
+                    offset + best_length < search_buffer.len() as u16 
+                    && best_length < look_ahead_buffer.len() as u16 
+                    && search_buffer[(offset + best_length) as usize] == look_ahead_buffer[best_length as usize] 
+                );
             }
+
             if best_length > 0 {
                 for _ in 0..best_length {
                     if search_buffer.len() >= (search_buffer_size - 1) as usize {
@@ -74,7 +69,7 @@ impl LZ77 {
             } 
             if let Some(&c) = look_ahead_buffer.front() {
                 table.push(table_entry {
-                    offset: best_offset as u8,
+                    offset: best_offset as u16,
                     length: best_length as u8,
                     next_char: *c,
                 });
@@ -91,7 +86,7 @@ impl LZ77 {
         }
 
         table.push(table_entry {
-            offset: best_offset as u8,
+            offset: best_offset as u16,
             length: best_length as u8,
             next_char: 0,
         });
@@ -100,7 +95,8 @@ impl LZ77 {
             if entry.length == 0 && entry.offset == 0 {
                 vec![0, entry.next_char]
             } else {
-                vec![entry.length, entry.offset, entry.next_char]
+                let [byte1, byte2] = entry.offset.to_ne_bytes();
+                vec![entry.length, byte1, byte2, entry.next_char]
             }
         }).collect::<Vec<u8>>();
         LZ77 {
@@ -116,8 +112,8 @@ impl LZ77 {
                 decompressed.push(table_entry {offset: 0, length: 0, next_char: self.data[indx + 1]});
                 indx += 2;
             } else {
-                decompressed.push(table_entry {offset: self.data[indx+1], length: self.data[indx], next_char: self.data[indx + 2]});
-                indx += 3;
+                decompressed.push(table_entry {offset: u16::from_ne_bytes([self.data[indx+1], self.data[indx+2]]), length: self.data[indx], next_char: self.data[indx + 3]});
+                indx += 4;
             }
         }
 
@@ -129,7 +125,7 @@ impl LZ77 {
             } else {
                 let offset = entry.offset as usize;
                 let length = entry.length as usize;
-                let result_length_offset = (0).max(result.len() as i32 - 255 as i32 + 1) as usize;
+                let result_length_offset = (0).max(result.len() as i32 - u16::MAX as i32 + 1) as usize;
                 for i in 0..length {
                     let c = result[i + offset + result_length_offset];
                     result.push(c);
@@ -145,7 +141,7 @@ impl LZ77 {
 
 #[derive(Debug)]
 pub struct table_entry {
-    pub offset: u8,
+    pub offset: u16,
     pub length: u8,
     pub next_char: u8,
 }
