@@ -1,15 +1,17 @@
 mod huffman;
 mod file_system;
+mod lz77;
 
 use std::fs;
 
 use huffman::{HuffmanResult, HuffmanTree};
+use serde::{Deserialize, Serialize};
 
 fn main() {
 
     let start = std::time::Instant::now();
 
-    let contents = fs::read_to_string("bibel.txt").unwrap();
+    let contents = "Hallo Welt! Dies ist ein Test. Ich hoffe, dassfasa1234567,8,91234567890123123123123123";
 
     let encrypted = HuffmanTree::encrypt(&contents);
 
@@ -31,9 +33,15 @@ fn main() {
     println!("Encryption time: {:?}", entcrypt_time.duration_since(start));
     println!("Decryption time: {:?}", decrypt_time.duration_since(entcrypt_time));
 
-    // let test = (0..1000000000).map(|i| (i % 26 + 65) as u8 as char).collect::<String>();
-    // fs::write("test.txt", &test).unwrap();
 
+    let input = fs::read("input.txt").unwrap();
+    let lz77 = lz77::LZ77::encode(&input);
+    fs::write("compressed.tmy", lz77.serialize()).unwrap();
+    let compressed = fs::read("compressed.tmy").unwrap();
+    let deserialized = lz77::LZ77::deserialize(&compressed);
+    let decoded = deserialized.decode();
+    // println!("{:?}", decoded);
+    assert!(input == decoded, "Decoded content is not the same as the original content");
 
 }
 
