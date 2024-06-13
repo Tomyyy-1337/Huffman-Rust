@@ -1,9 +1,14 @@
+use core::num;
 use std::collections::VecDeque;
+use bincode::de;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
+
 
 #[derive(Serialize, Deserialize)]
 pub struct LZ77 {
-    pub data: Vec<u8>,
+    pub data: Vec<Vec<u8>>,
+    num_chunks: usize,
 }
 
 impl LZ77 {
@@ -15,126 +20,162 @@ impl LZ77 {
         bincode::deserialize(input).unwrap()
     }
 
-    pub fn from_data(data: Vec<u8>) -> Self {
-        LZ77 {
-            data,
+
+
+    fn lpc(input: &[u8], i: usize, j: usize) -> usize {
+        if i == 0 || j == 0 {
+            return 0;
         }
+        let mut k = 0;
+        while j + k < input.len() && i + k < input.len() && input[i + k] == input[j + k] {
+            k += 1;
+        }
+        k
+    }
+
+    pub fn fast_encode(input: &[u8]) -> Vec<u8>{
+        let n = input.len();
+
+        let mut suffix_array = (0..=n).collect::<Vec<usize>>();
+        suffix_array.sort_unstable_by_key(|&i| &input[i..]);
+
+        let mut inverse_suffix_array: Vec<_> = suffix_array.iter().enumerate().collect();
+        inverse_suffix_array.sort_unstable_by_key(|&(_,i)| i);
+        let inverse_suffix_array = inverse_suffix_array.into_iter().map(|(i,_)| i).collect::<Vec<_>>();
+
+        let mut nsv = vec![0; n+1];
+        let mut psv = vec![usize::MAX; n+1];
+        for i in 1..n {
+            let mut j = i - 1;
+            while psv[j] != usize::MAX && suffix_array[i] < suffix_array[j] {
+                nsv[j] = i;
+                j = psv[j];
+            }
+            psv[i] = j;
+        }
+        psv = psv.into_iter().map(|i| if i == usize::MAX {0} else {i}).collect::<Vec<_>>();
+        nsv = nsv.into_iter().map(|i| i).collect::<Vec<_>>();
+
+        let mut factors = Vec::new();
+        let mut k = 0;
+        while k < n {
+            let psv = suffix_array[psv[inverse_suffix_array[k]]];
+            let nsv = suffix_array[nsv[inverse_suffix_array[k]]];
+            let (p,l,c,indx) = LZ77::lz_factor(k, psv, nsv, input);
+            k = indx;
+            factors.push((p,l,c));
+        }
+        
+        factors.into_iter().flat_map(|(mut p,mut l,c)| {
+            if l == 0 {
+                vec![0, c]
+            } else if l < u8::MAX as usize {
+                let p_bytes = p.to_ne_bytes();
+                vec![l as u8,p_bytes[0], p_bytes[1],c]
+            } else {
+                let mut result = Vec::new();
+                while l >= u8::MAX as usize {
+                    let p_bytes = p.to_ne_bytes();
+                    result.extend([u8::MAX, p_bytes[0], p_bytes[1], c]);
+                    p += u8::MAX as usize;
+                    l -= u8::MAX as usize;
+                }
+                let p_bytes = p.to_ne_bytes();
+                result.extend(vec![l as u8, p_bytes[0], p_bytes[1], c]);
+                result
+            }
+        }).collect::<Vec<_>>()
+    }
+
+    fn decode_chunk(factors: &Vec<(usize, usize, u8)>) -> Vec<u8> {
+        let mut decoded = Vec::new();
+        for (p,l,c) in factors {
+            if *l == 0 {
+                decoded.push(*c);
+            } else {
+                for i in 0..*l {
+                    let c = decoded[p + i];
+                    decoded.push(c);
+                }
+            }
+        }
+        decoded
+    }
+
+    // pub fn decode_factors(&self) -> Vec<u8> {
+    //     let mut decoded = Vec::new();
+        
+    //     let mut indx = 0;
+    //     let mut factors = Vec::new();
+    //     while indx < self.data.len() {
+    //         if self.data[indx] == 0 {
+    //             factors.push((0, 0, self.data[indx + 1]));
+    //             indx += 2;
+    //         } else {
+    //             factors.push((u16::from_ne_bytes([self.data[indx+1], self.data[indx+2]]) as usize, self.data[indx] as usize, self.data[indx + 3]));
+    //             indx += 4;
+    //         }
+    //         if factors.len() == u16::MAX as usize || indx == self.data.len() {
+    //             decoded.extend(LZ77::decode_chunk(&factors));
+    //             factors.clear();
+    //         }
+    //     }
+    //     decoded
+    // }
+
+    fn lz_factor(i:usize, psv: usize, nsv: usize, X: &[u8]) -> (usize, usize, u8, usize) {
+        let v1 = LZ77::lpc(X, i, psv);
+        let v2 = LZ77::lpc(X, i, nsv);
+        let (mut p,l) = if v1 > v2 {
+            (psv, v1)
+        } else {
+            (nsv, v2)
+        };
+        if l == 0 {
+            p = i;
+        }
+        let e =  X.get(i + l).unwrap_or(&0);
+        (p, l, *e, i + l.max(1))
     }
 
     pub fn encode(input: &[u8]) -> LZ77 {
-        let look_ahead_buffer_size = 255u8;
-        let search_buffer_size = u16::MAX;
+        let n = input.len();
+        let chunk_size = u16::MAX as usize;
 
-        let input_iter = &mut input.iter();
-        
-        let mut look_ahead_buffer: VecDeque<&u8> = input_iter.take(look_ahead_buffer_size as usize).collect::<VecDeque<&u8>>();
-        let mut search_buffer: VecDeque<&u8> = VecDeque::new();
-        
-        let mut table: Vec<table_entry> = Vec::new();
+        let num_chunks = (n + chunk_size - 1) / chunk_size;
 
-        let mut best_offset = 0;
-        let mut best_length = 0;
+        let data = (0..num_chunks).into_par_iter()
+            .map(|i| {
+                let start = i * chunk_size;
+                let end = (i + 1) * chunk_size;
+                let end = end.min(n);
+                let chunk = &input[start..end];
+                let factors = LZ77::fast_encode(chunk);
+                factors
+            })
+            .collect::<Vec<Vec<u8>>>();
 
-        while look_ahead_buffer.len() > 0 {
-            best_offset = 0;
-            best_length = 0;
-
-            let first = look_ahead_buffer[0];
-            let mut possible_offsets = search_buffer.iter().enumerate()
-                .filter(|&(_,&elem)| elem == first)
-                .map(|(i,_)| i as u16)
-                .collect::<Vec<_>>();
-            while possible_offsets.len() > 0 {
-                best_offset = possible_offsets[0];
-                best_length += 1;
-                possible_offsets.retain(|&offset| 
-                    offset + best_length < search_buffer.len() as u16 
-                    && best_length < look_ahead_buffer.len() as u16 
-                    && search_buffer[(offset + best_length) as usize] == look_ahead_buffer[best_length as usize] 
-                );
-            }
-
-            if best_length > 0 {
-                for _ in 0..best_length {
-                    if search_buffer.len() >= (search_buffer_size - 1) as usize {
-                        search_buffer.pop_front();
-                    }
-                    if let Some(c) = look_ahead_buffer.pop_front() {
-                        search_buffer.push_back(c);
-                    }
-                    if let Some(c) = input_iter.next() {
-                        look_ahead_buffer.push_back(c);
-                    }   
-                }
-            } 
-            if let Some(&c) = look_ahead_buffer.front() {
-                table.push(table_entry {
-                    offset: best_offset as u16,
-                    length: best_length as u8,
-                    next_char: *c,
-                });
-            }
-            if search_buffer.len() >= (search_buffer_size - 1) as usize {
-                search_buffer.pop_front();
-            }
-            if let Some(c) = look_ahead_buffer.pop_front() {
-                search_buffer.push_back(c);
-            }
-            if let Some(c) = input_iter.next() {
-                look_ahead_buffer.push_back(c);
-            }
-        }
-
-        table.push(table_entry {
-            offset: best_offset as u16,
-            length: best_length as u8,
-            next_char: 0,
-        });
-
-        let data = table.iter().flat_map(|entry| {
-            if entry.length == 0 && entry.offset == 0 {
-                vec![0, entry.next_char]
-            } else {
-                let [byte1, byte2] = entry.offset.to_ne_bytes();
-                vec![entry.length, byte1, byte2, entry.next_char]
-            }
-        }).collect::<Vec<u8>>();
         LZ77 {
             data,
+            num_chunks,
         }
     }
 
     pub fn decode(&self) -> Vec<u8> {
-        let mut decompressed = Vec::new();
-        let mut indx = 0;
-        while indx < self.data.len() {
-            if self.data[indx] == 0 {
-                decompressed.push(table_entry {offset: 0, length: 0, next_char: self.data[indx + 1]});
-                indx += 2;
-            } else {
-                decompressed.push(table_entry {offset: u16::from_ne_bytes([self.data[indx+1], self.data[indx+2]]), length: self.data[indx], next_char: self.data[indx + 3]});
-                indx += 4;
-            }
-        }
-
-        let mut result = Vec::new();
-
-        for entry in decompressed.iter() {
-            if entry.length == 0 && entry.offset == 0 {
-                result.push(entry.next_char);
-            } else {
-                let offset = entry.offset as usize;
-                let length = entry.length as usize;
-                let result_length_offset = (0).max(result.len() as i32 - u16::MAX as i32 + 1) as usize;
-                for i in 0..length {
-                    let c = result[i + offset + result_length_offset];
-                    result.push(c);
+        self.data.iter().flat_map(|chunk| {
+            let mut indx = 0;
+            let mut factors = Vec::new();
+            while indx < chunk.len() {
+                if chunk[indx] == 0 {
+                    factors.push((0, 0, chunk[indx + 1]));
+                    indx += 2;
+                } else {
+                    factors.push((u16::from_ne_bytes([chunk[indx+1], chunk[indx+2]]) as usize, chunk[indx] as usize, chunk[indx + 3]));
+                    indx += 4;
                 }
-                result.push(entry.next_char);
             }
-        }
-        result.pop();
-        result
+            LZ77::decode_chunk(&factors)
+        }).collect::<Vec<_>>()
     }
 
 }
