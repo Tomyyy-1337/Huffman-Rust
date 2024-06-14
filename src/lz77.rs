@@ -2,20 +2,20 @@ use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterato
 use serde::{Deserialize, Serialize};
 
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LZ77 {
     pub data: Vec<u8>,
     pub chunk_sizes: Vec<u32>,
 }
 
 impl LZ77 {
-    pub fn serialize(&self) -> Vec<u8> {
-        bincode::serialize(&self).unwrap()
-    }
+    // pub fn serialize(&self) -> Vec<u8> {
+    //     bincode::serialize(&self).unwrap()
+    // }
     
-    pub fn deserialize(input: &[u8]) -> Self {
-        bincode::deserialize(input).unwrap()
-    }
+    // pub fn deserialize(input: &[u8]) -> Self {
+    //     bincode::deserialize(input).unwrap()
+    // }
 
     fn lpc(input: &[u8], i: usize, j: usize) -> usize {
         if i == 0 || j == 0 {

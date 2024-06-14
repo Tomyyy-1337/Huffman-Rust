@@ -1,9 +1,9 @@
 use std::fs;
 
-use rayon::{iter::{IntoParallelIterator, ParallelIterator}, vec};
+use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
 use serde::{Serialize, Deserialize};
 
-use crate::{huffman_byte, lz77};
+use crate::{huffman, lz77};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Archive {
@@ -34,7 +34,7 @@ impl Archive {
     }
 
     pub fn read_directory(path: &str) -> Self {
-        let full_path = std::fs::canonicalize(path).unwrap();
+        let full_path = fs::canonicalize(path).unwrap();
         let dir_name = full_path.file_name().unwrap().to_str().unwrap();
         if full_path.is_file() {
             return Self::File {
@@ -43,11 +43,10 @@ impl Archive {
             }
         }
 
-        let children_paths = fs::read_dir(path).unwrap()
+        let children = fs::read_dir(path).unwrap()
             .map(|entry| entry.unwrap().path().file_name().unwrap().to_str().unwrap().to_string())
-            .collect::<Vec<_>>();
-
-        let children = children_paths.into_par_iter()
+            .filter(|child_path| !child_path.ends_with(".tmy"))
+            .par_bridge()
             .map(|child_path| Self::read_directory(&(path.to_string() + "/" + &child_path)))
             .collect::<Vec<_>>();
 
@@ -55,27 +54,37 @@ impl Archive {
             name: dir_name.to_string(),
             children,
         }
-
     }
 
     pub fn write_directory(&self, path: &str) {
         match self {
-            Archive::File { name, content } => {
+            Archive::File { name, content } if fs::metadata(format!("{}/{}", path, name)).is_err() => {
                 let decoded = content.decode();
                 fs::write(path.to_string() + "/" + name, &decoded).unwrap();
             },
-            Archive::Directory { name, children } => {
+            Archive::Directory { name, children } if fs::metadata(format!("{}/{}", path, name)).is_err() => {
                 fs::create_dir(path.to_string() + "/" + name).unwrap_or(());
-                children.iter().for_each(|child| child.write_directory(&(path.to_string() + "/" + name)));
+                children.par_iter().for_each(|child| child.write_directory(&(path.to_string() + "/" + name)));
             },
+            Archive::File { name, .. } | Archive::Directory { name, .. } => println!("{} existiert bereits", name),
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum FileData {
+    Huffman {
+        data: huffman::Huffman,
+    },
     LZ77_24Huffman {
-        data: huffman_byte::Huffman,
+        data: huffman::Huffman,
+        chunk_sizes: Vec<u32>,
+    },
+    LZ77_24 {
+        data: lz77::LZ77,
+    },
+    LZ77_16Huffman {
+        data: huffman::Huffman,
         chunk_sizes: Vec<u32>,
     },
     LZ77_16 {
@@ -89,40 +98,57 @@ pub enum FileData {
 impl FileData {
     pub fn read_and_encode(path: &str) -> Self {
         let data = std::fs::read(path).unwrap();
-        let compressed = if data.len() < u16::MAX as usize {
-            FileData::LZ77_16 { data: lz77::LZ77::encode(&data, 2) }
-        } else {
-            let lz77 = lz77::LZ77::encode(&data, 3);
-            let huffman = huffman_byte::Huffman::encrypt(&lz77.data);
-            FileData::LZ77_24Huffman { data: huffman, chunk_sizes: lz77.chunk_sizes }
-        };
-        if compressed.size() < data.len() {
-            compressed
-        } else {
-            FileData::Binary { data }
-        }
+        let data_len = data.len();
         
+        let lz16 = lz77::LZ77::encode(&data, 2);
+        let mut compressions = vec![
+            FileData::LZ77_16Huffman { 
+                data: huffman::Huffman::encrypt(&lz16.data), 
+                chunk_sizes: lz16.chunk_sizes.clone() 
+            },
+            FileData::LZ77_16 { data: lz16 },
+            FileData::Huffman { data: huffman::Huffman::encrypt(&data) },
+        ];
+        if data_len > u16::MAX as usize {
+            let lz77_24 = lz77::LZ77::encode(&data, 3);
+            compressions.push(FileData::LZ77_24Huffman {
+                data: huffman::Huffman::encrypt(&lz77_24.data),
+                chunk_sizes: lz77_24.chunk_sizes.clone(),
+            });
+            compressions.push(FileData::LZ77_24 { data: lz77_24 });
+        }
+        compressions.push(FileData::Binary { data });
+
+        compressions.into_iter()
+            .min_by_key(|c| c.size())
+            .unwrap()
     }
 
     fn size (&self) -> usize {
         match self {
             FileData::LZ77_24Huffman { data, chunk_sizes } => data.serialize().len() + chunk_sizes.len() * 4,
+            FileData::LZ77_16Huffman { data, chunk_sizes } => data.serialize().len() + chunk_sizes.len() * 4,
+            FileData::LZ77_24 { data } => data.data.len() + data.chunk_sizes.len() * 4,
             FileData::LZ77_16 { data } => data.data.len() + data.chunk_sizes.len() * 4,
+            FileData::Huffman { data } => data.serialize().len(),
             FileData::Binary { data } => data.len(),
         }
     }
 
     pub fn decode(&self) -> Vec<u8> {
         match self {
-            FileData::LZ77_24Huffman { data, chunk_sizes } => {
-                lz77::LZ77 {
-                    data: data.decrypt(),
-                    chunk_sizes: chunk_sizes.clone(),
-                }.decode(3)
-            },
+            FileData::LZ77_24Huffman { data, chunk_sizes } => lz77::LZ77 {
+                data: data.decrypt(),
+                chunk_sizes: chunk_sizes.clone(),
+            }.decode(3),
+            FileData::LZ77_16Huffman { data, chunk_sizes } => lz77::LZ77 {
+                data: data.decrypt(),
+                chunk_sizes: chunk_sizes.clone(),
+            }.decode(2),
+            FileData::LZ77_24 { data } => data.decode(3),
             FileData::LZ77_16 { data } => data.decode(2),
+            FileData::Huffman { data } => data.decrypt(),
             FileData::Binary { data } => data.clone(),
         }
     }
-    
 }
