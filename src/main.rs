@@ -4,7 +4,7 @@ mod file_system;
 mod lz77;
 mod ukkonen;
 
-use std::fs;
+use std::{fs, io::Write};
 
 use bincode::de::{self, read};
 use huffman_byte::Huffman;
@@ -13,7 +13,17 @@ use rayon::vec;
 use serde::{Deserialize, Serialize};
 
 fn main() {
-    let test_input = fs::read("lcet10.txt").unwrap();
+    let test_input = fs::read("input.txt").unwrap();
+    
+    // // Create file with 100x the test input 
+    // let mut file = fs::File::create("input_L.txt").unwrap();
+    // for _ in 0..100 {
+    //     file.write(&test_input).unwrap();
+    // }
+
+
+
+
     println!("Input size: {}", test_input.len());
 
     let mut start = std::time::Instant::now();

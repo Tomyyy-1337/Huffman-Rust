@@ -1,7 +1,4 @@
-use core::num;
-use std::collections::VecDeque;
-use bincode::de;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
 
@@ -117,7 +114,7 @@ impl LZ77 {
 
     pub fn encode(input: &[u8]) -> LZ77 {
         let n = input.len();
-        let chunk_size = 2usize.pow(24) - 1;
+        let chunk_size = 2usize.pow(20) - 1;
 
         let num_chunks = (n + chunk_size - 1) / chunk_size;
 
@@ -139,7 +136,7 @@ impl LZ77 {
     }
 
     pub fn decode(&self) -> Vec<u8> {
-        self.data.iter().flat_map(|chunk| {
+        self.data.par_iter().flat_map(|chunk| {
             let mut indx = 0;
             let mut factors = Vec::new();
             while indx < chunk.len() {
@@ -155,11 +152,4 @@ impl LZ77 {
         }).collect::<Vec<_>>()
     }
 
-}
-
-#[derive(Debug)]
-pub struct table_entry {
-    pub offset: u16,
-    pub length: u8,
-    pub next_char: u8,
 }
