@@ -26,7 +26,7 @@ fn main() {
     // println!("Encoded size: {}", encoded.len());
     let decoded = encoded.decode();
     println!("Decoding took {:?}", start.elapsed());
-
+    fs::write("output.txt", &decoded).unwrap();
     assert!(test_input == decoded, "Decoded content is not the same as the original content")
 
 

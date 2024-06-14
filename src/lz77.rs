@@ -20,8 +20,6 @@ impl LZ77 {
         bincode::deserialize(input).unwrap()
     }
 
-
-
     fn lpc(input: &[u8], i: usize, j: usize) -> usize {
         if i == 0 || j == 0 {
             return 0;
@@ -70,18 +68,18 @@ impl LZ77 {
             if l == 0 {
                 vec![0, c]
             } else if l < u8::MAX as usize {
-                let p_bytes = p.to_ne_bytes();
-                vec![l as u8,p_bytes[0], p_bytes[1],c]
+                let p_bytes = p.to_le_bytes();
+                vec![l as u8,p_bytes[0], p_bytes[1], p_bytes[2],c]
             } else {
                 let mut result = Vec::new();
                 while l >= u8::MAX as usize {
-                    let p_bytes = p.to_ne_bytes();
-                    result.extend([u8::MAX, p_bytes[0], p_bytes[1], c]);
+                    let p_bytes = p.to_le_bytes();
+                    result.extend([u8::MAX, p_bytes[0], p_bytes[1], p_bytes[2], c]);
                     p += u8::MAX as usize;
                     l -= u8::MAX as usize;
                 }
-                let p_bytes = p.to_ne_bytes();
-                result.extend(vec![l as u8, p_bytes[0], p_bytes[1], c]);
+                let p_bytes = p.to_le_bytes();
+                result.extend([l as u8, p_bytes[0], p_bytes[1], p_bytes[2], c]);
                 result
             }
         }).collect::<Vec<_>>()
@@ -119,7 +117,7 @@ impl LZ77 {
 
     pub fn encode(input: &[u8]) -> LZ77 {
         let n = input.len();
-        let chunk_size = u16::MAX as usize;
+        let chunk_size = 2usize.pow(24) - 1;
 
         let num_chunks = (n + chunk_size - 1) / chunk_size;
 
@@ -149,8 +147,8 @@ impl LZ77 {
                     factors.push((0, 0, chunk[indx + 1]));
                     indx += 2;
                 } else {
-                    factors.push((u16::from_ne_bytes([chunk[indx+1], chunk[indx+2]]) as usize, chunk[indx] as usize, chunk[indx + 3]));
-                    indx += 4;
+                    factors.push((u32::from_le_bytes([chunk[indx+1], chunk[indx+2], chunk[indx+3], 0])as usize, chunk[indx] as usize, chunk[indx + 4]));
+                    indx += 5;
                 }
             }
             LZ77::decode_chunk(&factors)
