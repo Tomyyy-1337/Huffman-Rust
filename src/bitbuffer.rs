@@ -1,0 +1,78 @@
+use std::{collections::VecDeque, io::Read};
+
+use bincode::de::read;
+
+pub struct bitbuffer {
+    data: Vec<u8>,
+    read_pos: usize,
+    num_bits: usize,
+}
+
+impl bitbuffer {
+    pub fn new() -> Self {
+        bitbuffer {
+            data: Vec::new(),
+            read_pos: 0,
+            num_bits: 0,
+        }
+    }
+
+    fn write_bit(&mut self, bit: bool) {
+        if self.num_bits % 8 == 0 {
+            self.data.push(0);
+        }
+        if bit {
+            self.data[self.num_bits / 8] |= 1 << (self.num_bits % 8);
+        }
+        self.num_bits += 1;
+    }
+
+    pub fn write_bits(&mut self, bits: u32, num_bits: u32) {
+        for i in 0..num_bits {
+            self.write_bit(bits & (1 << i) != 0);
+        }
+    }
+
+    pub fn write_byte(&mut self, byte: u8) {
+        for i in 0..8 {
+            self.write_bit(byte & (1 << i) != 0);
+        }
+    }
+
+    fn read_bit(&mut self) -> bool {
+        let bit = self.data[self.read_pos / 8] & (1 << (self.read_pos % 8)) != 0;
+        self.read_pos += 1;
+        bit
+    }
+
+    pub fn read_byte(&mut self) -> Option<u8> {
+        if self.read_pos + 8 > self.data.len() * 8 {
+            return None;
+        }
+        let mut byte = 0;
+        for i in 0..8 {
+            if self.read_bit() {
+                byte |= 1 << i;
+            }
+        }
+        Some(byte)
+    }
+
+    pub fn read_bits(&mut self, num_bits: u32) -> Option<u32> {
+        if self.read_pos + num_bits as usize > self.data.len() * 8 {
+            return None;
+        }
+        let mut bits = 0;
+        for i in 0..num_bits {
+            if self.read_bit() {
+                bits |= 1 << i;
+            }
+        }
+        Some(bits)
+    }
+
+
+
+
+
+}
