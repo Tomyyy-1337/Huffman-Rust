@@ -31,12 +31,22 @@ impl LZ77 {
     pub fn fast_encode(input: &[u8]) -> Vec<u8>{
         let n = input.len();
 
+        let start = std::time::Instant::now();
+
         let mut suffix_array = (0..=n).collect::<Vec<usize>>();
         suffix_array.sort_unstable_by_key(|&i| &input[i..]);
 
-        let mut inverse_suffix_array: Vec<_> = suffix_array.iter().enumerate().collect();
-        inverse_suffix_array.sort_unstable_by_key(|&(_,i)| i);
-        let inverse_suffix_array = inverse_suffix_array.into_iter().map(|(i,_)| i).collect::<Vec<_>>();
+
+        println!("Suffix array time: {:?}", start.elapsed());
+        let start = std::time::Instant::now();
+
+        let mut inverse_suffix_array = vec![0; n+1];
+        for (i, suffix_indx) in suffix_array.iter().enumerate() {
+            inverse_suffix_array[*suffix_indx] = i;
+        }
+
+        println!("Inverse suffix array time: {:?}", start.elapsed());
+        let start = std::time::Instant::now();
 
         let mut nsv = vec![0; n+1];
         let mut psv = vec![usize::MAX; n+1];
@@ -51,6 +61,10 @@ impl LZ77 {
         psv = psv.into_iter().map(|i| if i == usize::MAX {0} else {i}).collect::<Vec<_>>();
         nsv = nsv.into_iter().map(|i| i).collect::<Vec<_>>();
 
+        println!("NSV and PSV time: {:?}", start.elapsed());
+        let start = std::time::Instant::now();
+
+
         let mut factors = Vec::new();
         let mut k = 0;
         while k < n {
@@ -60,6 +74,8 @@ impl LZ77 {
             k = indx;
             factors.push((p,l,c));
         }
+
+        println!("LZ factor time: {:?}", start.elapsed());
         
         factors.into_iter().flat_map(|(mut p,mut l,c)| {
             if l == 0 {
@@ -114,7 +130,7 @@ impl LZ77 {
 
     pub fn encode(input: &[u8]) -> LZ77 {
         let n = input.len();
-        let chunk_size = 2usize.pow(20) - 1;
+        let chunk_size = 2usize.pow(24) - 1;
 
         let num_chunks = (n + chunk_size - 1) / chunk_size;
 
