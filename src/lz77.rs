@@ -102,27 +102,6 @@ impl LZ77 {
         decoded
     }
 
-    // pub fn decode_factors(&self) -> Vec<u8> {
-    //     let mut decoded = Vec::new();
-        
-    //     let mut indx = 0;
-    //     let mut factors = Vec::new();
-    //     while indx < self.data.len() {
-    //         if self.data[indx] == 0 {
-    //             factors.push((0, 0, self.data[indx + 1]));
-    //             indx += 2;
-    //         } else {
-    //             factors.push((u16::from_ne_bytes([self.data[indx+1], self.data[indx+2]]) as usize, self.data[indx] as usize, self.data[indx + 3]));
-    //             indx += 4;
-    //         }
-    //         if factors.len() == u16::MAX as usize || indx == self.data.len() {
-    //             decoded.extend(LZ77::decode_chunk(&factors));
-    //             factors.clear();
-    //         }
-    //     }
-    //     decoded
-    // }
-
     fn lz_factor(i:usize, psv: usize, nsv: usize, X: &[u8]) -> (usize, usize, u8, usize) {
         let v1 = LZ77::lpc(X, i, psv);
         let v2 = LZ77::lpc(X, i, nsv);

@@ -13,13 +13,15 @@ use rayon::vec;
 use serde::{Deserialize, Serialize};
 
 fn main() {
-    let test_input = fs::read("input.txt").unwrap();
+    let test_input = fs::read("lcet10.txt").unwrap();
     println!("Input size: {}", test_input.len());
 
     let mut start = std::time::Instant::now();
     let encoded = LZ77::encode(&test_input);
     println!("Encoding took {:?}", start.elapsed());   
+    println!("Number of chunks: {}", encoded.data.len());
     println!("Encoded size: {}", encoded.data.iter().map(|x| x.len()).sum::<usize>());
+    fs::write("output.bin", encoded.serialize()).unwrap();
     start = std::time::Instant::now();
     // println!("Encoded size: {}", encoded.len());
     let decoded = encoded.decode();
