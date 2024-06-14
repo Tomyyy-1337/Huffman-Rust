@@ -1,16 +1,23 @@
-use std::{collections::VecDeque, io::Read};
+use serde::{Deserialize, Serialize};
 
-use bincode::de::read;
-
-pub struct bitbuffer {
-    data: Vec<u8>,
-    read_pos: usize,
-    num_bits: usize,
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct BitBuffer {
+    pub data: Vec<u8>,
+    pub read_pos: usize,
+    pub num_bits: usize,
 }
 
-impl bitbuffer {
+impl BitBuffer {
+    pub fn serialize(&self) -> Vec<u8> {
+        bincode::serialize(&self).unwrap()
+    }
+
+    pub fn deserialize(input: &[u8]) -> Self {
+        bincode::deserialize(input).unwrap()
+    }
+
     pub fn new() -> Self {
-        bitbuffer {
+        BitBuffer {
             data: Vec::new(),
             read_pos: 0,
             num_bits: 0,
@@ -27,7 +34,7 @@ impl bitbuffer {
         self.num_bits += 1;
     }
 
-    pub fn write_bits(&mut self, bits: u32, num_bits: u32) {
+    pub fn write_bits(&mut self, bits: u32, num_bits: u8) {
         for i in 0..num_bits {
             self.write_bit(bits & (1 << i) != 0);
         }
@@ -58,7 +65,7 @@ impl bitbuffer {
         Some(byte)
     }
 
-    pub fn read_bits(&mut self, num_bits: u32) -> Option<u32> {
+    pub fn read_bits(&mut self, num_bits: u8) -> Option<u32> {
         if self.read_pos + num_bits as usize > self.data.len() * 8 {
             return None;
         }
@@ -70,9 +77,4 @@ impl bitbuffer {
         }
         Some(bits)
     }
-
-
-
-
-
 }

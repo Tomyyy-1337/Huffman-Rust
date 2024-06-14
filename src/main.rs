@@ -1,7 +1,7 @@
 mod huffman;
 mod file_system;
 mod lz77;
-mod bitbuffer;
+pub mod bitbuffer;
 // mod ukkonen;
 use std::fs;
 

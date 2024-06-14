@@ -14,10 +14,6 @@ impl Huffman {
     pub fn serialize(&self) -> Vec<u8> {
         bincode::serialize(&self).unwrap()
     }
-    
-    // pub fn deserialize(input: &[u8]) -> Self {
-    //     bincode::deserialize(input).unwrap()
-    // }
 
     pub fn encrypt(input: &Vec<u8>) -> Huffman {
         let tree = HuffmanTree::build_tree(&input);

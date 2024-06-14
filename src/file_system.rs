@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize};
 
 use crate::{huffman, lz77};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum Archive {
     File{
         name: String,
@@ -71,24 +71,18 @@ impl Archive {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum FileData {
     Huffman {
         data: huffman::Huffman,
     },
-    LZ77_24Huffman {
+    LZ77Huffman {
         data: huffman::Huffman,
-        chunk_sizes: Vec<u32>,
+        bits: u8,
     },
-    LZ77_24 {
+    LZ77 {
         data: lz77::LZ77,
-    },
-    LZ77_16Huffman {
-        data: huffman::Huffman,
-        chunk_sizes: Vec<u32>,
-    },
-    LZ77_16 {
-        data: lz77::LZ77,
+        bits: u8,
     },
     Binary {
         data: Vec<u8>,
@@ -98,26 +92,21 @@ pub enum FileData {
 impl FileData {
     pub fn read_and_encode(path: &str) -> Self {
         let data = std::fs::read(path).unwrap();
-        let data_len = data.len();
         
-        let lz16 = lz77::LZ77::encode(&data, 2);
-        let mut compressions = vec![
-            FileData::LZ77_16Huffman { 
-                data: huffman::Huffman::encrypt(&lz16.data), 
-                chunk_sizes: lz16.chunk_sizes.clone() 
+        let num_bits = (data.len() + 1).ilog2();
+
+        let num_bits = num_bits.max(2).min(24) as u8;
+
+        let lz77: lz77::LZ77 = lz77::LZ77::encode(&data, num_bits);
+        let compressions = vec![
+            FileData::LZ77Huffman { 
+                data: huffman::Huffman::encrypt(&lz77.serialize()), 
+                bits: num_bits,
             },
-            FileData::LZ77_16 { data: lz16 },
+            FileData::LZ77 { data: lz77, bits: num_bits },
             FileData::Huffman { data: huffman::Huffman::encrypt(&data) },
+            FileData::Binary { data },
         ];
-        if data_len > u16::MAX as usize {
-            let lz77_24 = lz77::LZ77::encode(&data, 3);
-            compressions.push(FileData::LZ77_24Huffman {
-                data: huffman::Huffman::encrypt(&lz77_24.data),
-                chunk_sizes: lz77_24.chunk_sizes.clone(),
-            });
-            compressions.push(FileData::LZ77_24 { data: lz77_24 });
-        }
-        compressions.push(FileData::Binary { data });
 
         compressions.into_iter()
             .min_by_key(|c| c.size())
@@ -126,10 +115,8 @@ impl FileData {
 
     fn size (&self) -> usize {
         match self {
-            FileData::LZ77_24Huffman { data, chunk_sizes } => data.serialize().len() + chunk_sizes.len() * 4,
-            FileData::LZ77_16Huffman { data, chunk_sizes } => data.serialize().len() + chunk_sizes.len() * 4,
-            FileData::LZ77_24 { data } => data.data.len() + data.chunk_sizes.len() * 4,
-            FileData::LZ77_16 { data } => data.data.len() + data.chunk_sizes.len() * 4,
+            FileData::LZ77Huffman { data, .. } => data.serialize().len(),
+            FileData::LZ77 { data, .. } => data.serialize().len(),
             FileData::Huffman { data } => data.serialize().len(),
             FileData::Binary { data } => data.len(),
         }
@@ -137,16 +124,8 @@ impl FileData {
 
     pub fn decode(&self) -> Vec<u8> {
         match self {
-            FileData::LZ77_24Huffman { data, chunk_sizes } => lz77::LZ77 {
-                data: data.decrypt(),
-                chunk_sizes: chunk_sizes.clone(),
-            }.decode(3),
-            FileData::LZ77_16Huffman { data, chunk_sizes } => lz77::LZ77 {
-                data: data.decrypt(),
-                chunk_sizes: chunk_sizes.clone(),
-            }.decode(2),
-            FileData::LZ77_24 { data } => data.decode(3),
-            FileData::LZ77_16 { data } => data.decode(2),
+            FileData::LZ77Huffman { data, bits } => lz77::LZ77::deserialize(&data.decrypt()).decode(*bits),
+            FileData::LZ77 { data, bits } => data.clone().decode(*bits),
             FileData::Huffman { data } => data.decrypt(),
             FileData::Binary { data } => data.clone(),
         }
