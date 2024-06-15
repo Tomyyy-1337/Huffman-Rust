@@ -3,6 +3,8 @@ use std::{cmp::Reverse, collections::HashMap};
 use priority_queue::PriorityQueue;
 use serde::{Serialize, Deserialize};
 
+use crate::bitbuffer;
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct HuffmanNoTree {
     pub data: Vec<u8>,
@@ -59,7 +61,7 @@ impl HuffmanNoTree {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Huffman {
-    tree: HuffmanTree,
+    tree: Vec<u8>,
     unused_bits: u8,
     pub data: Vec<u8>,
 }
@@ -76,14 +78,14 @@ impl Huffman {
 
         let HuffmanNoTree { data, unused_bits } = HuffmanNoTree::encrypt(input, &tree);
         Huffman {
-            tree,
+            tree: tree.better_serialize(),
             unused_bits,
             data,
         }
     }
 
     pub fn decrypt(&self) -> Vec<u8> {
-        let tree = &self.tree;
+        let tree = HuffmanTree::better_deserialize(&self.tree);
         let data = &self.data;
         let unused = self.unused_bits;
         let mut result = Vec::new();
@@ -101,13 +103,55 @@ impl Huffman {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug, Clone)]
+#[derive(PartialEq, Eq, Hash, Debug, Clone)]
 pub struct HuffmanTree {
     pub children: Vec<HuffmanTree>,
     pub character: Option<u8>,
 }
 
 impl HuffmanTree {
+    pub fn better_serialize(&self) -> Vec<u8> {
+        let mut bitbuffer = bitbuffer::BitBuffer::new();
+        self.beter_serialize_rec(&mut bitbuffer);
+        bitbuffer.serialize()
+    }
+
+    fn beter_serialize_rec(&self, bitbuffer: &mut bitbuffer::BitBuffer) {
+        match self.character {
+            Some(c) => {
+                bitbuffer.write_bit(true);
+                bitbuffer.write_byte(c);
+            }
+            None => {
+                bitbuffer.write_bit(false);
+                self.children[0].beter_serialize_rec(bitbuffer);
+                self.children[1].beter_serialize_rec(bitbuffer);
+            }
+        }
+    }
+
+    pub fn better_deserialize(input: &[u8]) -> Self {
+        let mut bitbuffer = bitbuffer::BitBuffer::deserialize(input);
+        Self::better_deserialize_rec(&mut bitbuffer)
+    }
+
+    fn better_deserialize_rec(bitbuffer: &mut bitbuffer::BitBuffer) -> Self {
+        if let Some(true) = bitbuffer.read_bit() {
+            Self {
+                children: vec![],
+                character: bitbuffer.read_byte(),
+            }
+        } else {
+            Self {
+                children: vec![
+                    Self::better_deserialize_rec(bitbuffer),
+                    Self::better_deserialize_rec(bitbuffer),
+                ],
+                character: None,
+            }
+        }
+    }
+
     pub fn from_counts(counts: [u64;256]) -> HuffmanTree {
         let mut pq: PriorityQueue<Self, _, _> = PriorityQueue::new();
         pq.extend(counts.into_iter().enumerate().map(|(c, count)| (Self {

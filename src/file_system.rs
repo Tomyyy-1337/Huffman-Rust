@@ -18,7 +18,7 @@ pub enum Archive {
     Root {
         name: String,
         children: Vec<Archive>,
-        tree: huffman::HuffmanTree,
+        tree: Vec<u8>,
     },
 }
 
@@ -86,7 +86,7 @@ impl Archive {
                     };
                     println!("No fixed huffman found");
                 }
-                Archive::Root { name: name.to_string(), children: children.clone(), tree }
+                Archive::Root { name: name.to_string(), children: children.clone(), tree: tree.better_serialize() }
             },
             _ => panic!("Root must be a directory"),        
         }
@@ -119,7 +119,7 @@ impl Archive {
     pub fn write_directory(&self, path: &str) {
         match self {
             Archive::Root { tree, .. } => {
-                self.write_directory_rec(path, tree);            },
+                self.write_directory_rec(path, &huffman::HuffmanTree::better_deserialize(tree));},
             _ => panic!("Root must be a directory"),
         }
     }
