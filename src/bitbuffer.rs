@@ -66,7 +66,7 @@ impl BitBuffer {
     }
 
     pub fn read_bits(&mut self, num_bits: u8) -> Option<u32> {
-        if self.read_pos + num_bits as usize > self.data.len() * 8 {
+        if self.read_pos + num_bits as usize > self.num_bits {
             return None;
         }
         let mut bits = 0;

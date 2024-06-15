@@ -60,28 +60,35 @@ impl LZ77 {
             k = indx;
             factors.push((p,l,c));
         }
+
+        let lenght_size = Self::lenght_size(bits);
+        let max_lenght = 2usize.pow(lenght_size as u32) - 1;
         
         factors.into_iter().fold(BitBuffer::new(), | mut acc ,(mut p,mut l,c)| {
             if l == 0 {
-                acc.write_byte(0);
+                acc.write_bits(0, lenght_size);
                 acc.write_byte(c);
-            } else if l < u8::MAX as usize {
-                acc.write_byte(l as u8);
+            } else if l < max_lenght as usize {
+                acc.write_bits(l as u32, lenght_size);
                 acc.write_bits(p as u32, bits);
             } else {
-                while l >= u8::MAX as usize {
-                    acc.write_byte(u8::MAX);
+                while l >= max_lenght as usize{
+                    acc.write_bits(u32::MAX, lenght_size);
                     acc.write_bits(p as u32, bits);
-                    p += u8::MAX as usize;
-                    l -= u8::MAX as usize;
+                    p += max_lenght;
+                    l -= max_lenght;
                 }
                 if l != 0 {
-                    acc.write_byte(l as u8);
+                    acc.write_bits(l as u32, lenght_size);
                     acc.write_bits(p as u32, bits);
                 }
             }
             acc
         })
+    }
+
+    fn lenght_size(bits: u8) -> u8 {
+        (bits - 2).min(6).max(2)
     }
 
     fn decode_chunk(factors: &Vec<(usize, usize, u8)>) -> Vec<u8> {
@@ -135,9 +142,10 @@ impl LZ77 {
     }
 
     pub fn decode(&mut self, bits: u8) -> Vec<u8> {
+        let lenght_size = Self::lenght_size(bits);
         self.bitbuffers.par_iter_mut().flat_map(|chunk| {
             let mut factors = Vec::new();
-            while let Some(l) = chunk.read_byte() {
+            while let Some(l) = chunk.read_bits(lenght_size) {
                 if l == 0 {
                     factors.push((0, 0, chunk.read_byte().unwrap()));
                 } else {

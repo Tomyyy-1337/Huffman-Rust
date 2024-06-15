@@ -12,11 +12,11 @@ fn main() {
         println!("Decoding archive {}", path);
         let data = fs::read(path).unwrap();
         let archive = file_system::Archive::deserialize(&data);
-        archive.write_directory("./");
+        archive.write_directory(".");
         println!("Decoding complete")
     } else {
         println!("Encoding current directory");
-        let archive = file_system::Archive::read_directory("./");
+        let archive = file_system::Archive::read_directory(".");
         let serialized = archive.serialize();
         fs::write(format!("./{}.tmy", archive.get_name()), &serialized).unwrap();
         println!("Encoding complete\noutput file: {}.tmy", archive.get_name());
