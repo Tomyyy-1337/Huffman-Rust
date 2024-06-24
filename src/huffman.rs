@@ -17,12 +17,12 @@ impl HuffmanNoTree {
     }
 
     pub fn encrypt(input: &Vec<u8>, tree: &HuffmanTree) -> HuffmanNoTree {
-        let mut lookup = HashMap::new();
+        let mut lookup = (0..256).map(|_| Vec::new()).collect::<Vec<_>>();
         tree.build_map(vec![], &mut lookup);
 
         let (count, data) = input
             .into_iter()
-            .flat_map(|c| lookup.get(&c).unwrap())
+            .flat_map(|&c| &lookup[c as usize])
             .fold((0usize,Vec::new()), |(indx, mut acc), c|{
                 if indx % 8 == 0 {
                     acc.push(if *c {1u8} else {0u8});
@@ -73,7 +73,7 @@ impl Huffman {
 
     pub fn encrypt(input: &Vec<u8>) -> Huffman {
         let tree = HuffmanTree::build_tree(&input);
-        let mut lookup = HashMap::new();
+        let mut lookup = (0..256).map(|_| Vec::new()).collect::<Vec<_>>();
         tree.build_map(vec![], &mut lookup);
 
         let HuffmanNoTree { data, unused_bits } = HuffmanNoTree::encrypt(input, &tree);
@@ -193,10 +193,10 @@ impl HuffmanTree {
         }
     }
 
-    fn build_map(&self, current_path: Vec<bool>, map: &mut HashMap<u8, Vec<bool>>) {
+    fn build_map(&self, current_path: Vec<bool>, map: &mut Vec<Vec<bool>>) {
         match self.character {
             Some(c) => {
-                map.insert(c, current_path);
+                map[c as usize] = current_path;
             }
             None => {
                 self.children[0].build_map({
